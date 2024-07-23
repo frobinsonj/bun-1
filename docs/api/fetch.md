@@ -135,6 +135,51 @@ const response = await fetch("http://example.com", {
 controller.abort();
 ```
 
+### Unix domain sockets
+
+To fetch a URL using a Unix domain socket, use the `unix: string` option:
+
+```ts
+const response = await fetch("https://hostname/a/path", {
+  unix: "/var/run/path/to/unix.sock",
+  method: "POST",
+  body: JSON.stringify({ message: "Hello from Bun!" }),
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+```
+
+### TLS
+
+To use a client certificate, use the `tls` option:
+
+```ts
+await fetch("https://example.com", {
+  tls: {
+    key: Bun.file("/path/to/key.pem"),
+    cert: Bun.file("/path/to/cert.pem"),
+    // ca: [Bun.file("/path/to/ca.pem")],
+  },
+});
+```
+
+#### Custom TLS Validation
+
+To customize the TLS validation, use the `checkServerIdentity` option in `tls`
+
+```ts
+await fetch("https://example.com", {
+  tls: {
+    checkServerIdentity: (hostname, peerCertificate) => {
+      // Return an error if the certificate is invalid
+    },
+  },
+});
+```
+
+This is similar to how it works in Node's `net` module.
+
 ## Debugging
 
 To help with debugging, you can pass `verbose: true` to `fetch`:
@@ -192,9 +237,15 @@ import { dns } from "bun";
 dns.prefetch("bun.sh", 443);
 ```
 
+#### DNS caching
+
+By default, Bun caches and deduplicates DNS queries in-memory for up to 30 seconds. You can see the cache stats by calling `dns.getCacheStats()`:
+
+To learn more about DNS caching in Bun, see the [DNS caching](/docs/api/dns) documentation.
+
 ### Preconnect to a host
 
-To preconnect to a host, you can use the `http.prefetch` API. This API is useful when you know you'll need to connect to a host soon and want to start the initial DNS lookup, TCP socket connection, and TLS handshake early.
+To preconnect to a host, you can use the `fetch.preconnect` API. This API is useful when you know you'll need to connect to a host soon and want to start the initial DNS lookup, TCP socket connection, and TLS handshake early.
 
 ```ts
 import { fetch } from "bun";
@@ -214,9 +265,28 @@ $ bun --fetch-preconnect https://bun.sh ./my-script.ts
 
 This is sort of like `<link rel="preconnect">` in HTML.
 
+This feature is not implemented on Windows yet. If you're interested in using this feature on Windows, please file an issue and we can implement support for it on Windows.
+
 ### Connection pooling & HTTP keep-alive
 
 Bun automatically reuses connections to the same host. This is known as connection pooling. This can significantly reduce the time it takes to establish a connection. You don't need to do anything to enable this; it's automatic.
+
+#### Simultaneous connection limit
+
+By default, Bun limits the maximum number of simultaneous `fetch` requests to 256. We do this for several reasons:
+
+- It improves overall system stability. Operating systems have an upper limit on the number of simultaneous open TCP sockets, usually in the low thousands. Nearing this limit causes your entire computer to behave strangely. Applications hang and crash.
+- It encourages HTTP Keep-Alive connection reuse. For short-lived HTTP requests, the slowest step is often the initial connection setup. Reusing connections can save a lot of time.
+
+When the limit is exceeded, the requests are queued and sent as soon as the next request ends.
+
+You can increase the maximum number of simultaneous connections via the `BUN_CONFIG_MAX_HTTP_REQUESTS` environment variable:
+
+```sh
+$ BUN_CONFIG_MAX_HTTP_REQUESTS=512 bun ./my-script.ts
+```
+
+The max value for this limit is currently set to 65,336. The maximum port number is 65,535, so it's quite difficult for any one computer to exceed this limit.
 
 ### Response buffering
 
